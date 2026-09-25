@@ -8,7 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 # ------------------------------------------------------------------
 # App + DuckDB initialization
 # ------------------------------------------------------------------
-app = FastAPI(title="Hitek Data Gateway", version="1.1.0")
+app = FastAPI(title="Hitek Data Gateway", version="1.2.0")
 
 _db_lock = threading.Lock()
 con = duckdb.connect(database=":memory:")
@@ -16,7 +16,9 @@ con.execute("LOAD httpfs;")
 con.execute("SET threads=2;")
 con.execute("SET memory_limit='400MB';")
 
-# ---- Hugging Face authentication (required for private / gated datasets) ----
+# ---- Hugging Face authentication ----
+# Buckets are public, but we still load the token if provided.
+# Useful if you later switch the bucket to private.
 HF_TOKEN = "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"
 if HF_TOKEN:
     try:
@@ -24,11 +26,11 @@ if HF_TOKEN:
             f"CREATE OR REPLACE SECRET hf_token "
             f"(TYPE HUGGINGFACE, TOKEN '{HF_TOKEN}');"
         )
-        print("[INIT] Hugging Face secret loaded successfully.")
+        print("[INIT] Hugging Face secret loaded.")
     except Exception as e:
         print(f"[INIT][ERROR] Failed to create HF secret: {e}")
 else:
-    print("[INIT][WARN] HF_TOKEN env var not set — private datasets will return 401.")
+    print("[INIT] No HF_TOKEN set — using anonymous access (fine for public buckets).")
 
 
 # ------------------------------------------------------------------
@@ -171,13 +173,14 @@ def fetch_data(Number: str = Query(None)):
 
     last_digit = Number[-1]
 
+    # ---- FIXED: buckets URL (Xet storage), no /main/ segment ----
     primary_url = (
-        f"https://huggingface.co/datasets/CutehackX/hitek-data-bucket/"
-        f"resolve/main/final_master_shard_{last_digit}.parquet"
+        f"https://huggingface.co/buckets/CutehackX/hitek-data-bucket/"
+        f"resolve/final_master_shard_{last_digit}.parquet"
     )
     alt_url = (
-        f"https://huggingface.co/datasets/CutehackX/hitek-data-bucket/"
-        f"resolve/main/alt_master_shard_{last_digit}.parquet"
+        f"https://huggingface.co/buckets/CutehackX/hitek-data-bucket/"
+        f"resolve/alt_master_shard_{last_digit}.parquet"
     )
 
     try:
@@ -233,8 +236,20 @@ def fetch_data(Number: str = Query(None)):
                     "status": "error",
                     "message": (
                         "Hugging Face rejected the request (401). "
-                        "Verify that HF_TOKEN is set, the token is valid, "
-                        "and that you have accepted the dataset's terms."
+                        "The bucket may be private — set HF_TOKEN on Render, "
+                        "or confirm the bucket is public."
+                    ),
+                    "Developer": "@ObscuraApis"
+                }
+            )
+        if "404" in err or "not found" in err.lower():
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "status": "error",
+                    "message": (
+                        "Shard file not found on Hugging Face. "
+                        "Verify the filename and bucket path are correct."
                     ),
                     "Developer": "@ObscuraApis"
                 }
