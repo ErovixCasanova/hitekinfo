@@ -1,264 +1,799 @@
+# Developed NIROB | Premium JWT Generator API & Web
+# Fixed By NIROB
+# tg : MT_0G
+# Flask Version
+
 import os
-import threading
-import duckdb
-from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
+import sys
+import json
+import time
+import random
+import gzip
+import ssl
+import http.client
+import urllib.parse
+from io import BytesIO
+from datetime import datetime
 
-# ------------------------------------------------------------------
-# App + DuckDB initialization
-# ------------------------------------------------------------------
-app = FastAPI(title="Hitek Data Gateway", version="1.2.0")
+import requests
+import urllib3
+import jwt
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+from flask import Flask, request, jsonify, render_template_string
 
-_db_lock = threading.Lock()
-con = duckdb.connect(database=":memory:")
-con.execute("LOAD httpfs;")
-con.execute("SET threads=2;")
-con.execute("SET memory_limit='400MB';")
+# Protobuf modules (must be present in the same directory)
+import MajoRLoGinrEq_pb2
+import MajoRLoGinrEs_pb2
 
-# ---- Hugging Face authentication ----
-# Buckets are public, but we still load the token if provided.
-# Useful if you later switch the bucket to private.
-HF_TOKEN = "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"
-if HF_TOKEN:
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ==================== CONSTANTS ====================
+AES_KEY = b'Yg&tc%DEuh6%Zc^8'
+AES_IV = b'6oyZDr22E3ychjM%'
+PORT = 8080
+
+app = Flask(__name__)
+
+
+# ==================== HELPER FUNCTIONS ====================
+
+def encrypt_proto(data: bytes) -> bytes:
+    cipher = AES.new(AES_KEY, AES.MODE_CBC, AES_IV)
+    padded = pad(data, AES.block_size)
+    return cipher.encrypt(padded)
+
+
+def get_access_token(uid, password):
+    url = "https://100067.connect.garena.com/oauth/guest/token/grant"
+    headers = {
+        "Host": "100067.connect.garena.com",
+        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 7.1.2; ASUS_Z01QD Build/QKQ1.190825.002)",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "close",
+    }
+    data = {
+        "uid": str(uid),
+        "password": str(password),
+        "response_type": "token",
+        "client_type": "2",
+        "client_secret": "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3",
+        "client_id": "100067",
+    }
     try:
-        con.execute(
-            f"CREATE OR REPLACE SECRET hf_token "
-            f"(TYPE HUGGINGFACE, TOKEN '{HF_TOKEN}');"
-        )
-        print("[INIT] Hugging Face secret loaded.")
-    except Exception as e:
-        print(f"[INIT][ERROR] Failed to create HF secret: {e}")
-else:
-    print("[INIT] No HF_TOKEN set — using anonymous access (fine for public buckets).")
+        r = requests.post(url, headers=headers, data=data, timeout=10)
+        if r.status_code == 200:
+            j = r.json()
+            return j.get('access_token'), j.get('open_id')
+        return None, None
+    except Exception:
+        return None, None
 
 
-# ------------------------------------------------------------------
-# Landing page HTML
-# ------------------------------------------------------------------
-LANDING_PAGE_HTML = """
-<!DOCTYPE html>
+def major_login_protobuf(access_token, open_id):
+    try:
+        major_login = MajoRLoGinrEq_pb2.MajorLogin()
+        major_login.event_time = str(datetime.now())[:-7]
+        major_login.game_name = "free fire"
+        major_login.platform_id = 2
+        major_login.client_version = "1.126.2"
+        major_login.client_version_code = "2024010012"
+        major_login.system_software = "Android OS 11 / API-30 (RQ3A.210805.001)"
+        major_login.system_hardware = "Handheld"
+        major_login.device_type = "Handheld"
+        major_login.telecom_operator = "Verizon"
+        major_login.network_operator_a = "Verizon"
+        major_login.network_type = "WIFI"
+        major_login.network_type_a = "WIFI"
+        major_login.screen_width = 1080
+        major_login.screen_height = 2400
+        major_login.screen_dpi = "440"
+        major_login.processor_details = "ARMv8"
+        major_login.cpu_type = 2
+        major_login.cpu_architecture = "64"
+        major_login.memory = 6144
+        major_login.gpu_renderer = "Adreno (TM) 650"
+        major_login.gpu_version = "OpenGL ES 3.2 V@1.50"
+        major_login.graphics_api = "OpenGLES3"
+        major_login.unique_device_id = f"Google|34a7dcdf-a7d5-4cb6-8d7e-3b0e448a0c{random.randint(10,99)}"
+        major_login.client_ip = ""
+        major_login.language = "en"
+        major_login.open_id = open_id
+        major_login.open_id_type = "4"
+        major_login.login_open_id_type = 4
+        major_login.access_token = access_token
+        major_login.login_by = 3
+        major_login.platform_sdk_id = 2
+        major_login.origin_platform_type = "4"
+        major_login.primary_platform_type = "4"
+
+        memory_available = major_login.memory_available
+        memory_available.version = 55
+        memory_available.hidden_value = 81
+
+        major_login.external_storage_total = 128512
+        major_login.external_storage_available = random.randint(38000, 52000)
+        major_login.internal_storage_total = 110731
+        major_login.internal_storage_available = random.randint(18000, 32000)
+        major_login.game_disk_storage_total = 26628
+        major_login.game_disk_storage_available = random.randint(18000, 25000)
+        major_login.external_sdcard_total_storage = 119234
+        major_login.external_sdcard_avail_storage = random.randint(25000, 60000)
+        major_login.library_path = f"/data/app/~~{random.randint(100,999)}/base.apk"
+        major_login.library_token = "hash|base.apk"
+        major_login.client_using_version = "7428b253defc164018c604a1ebbfebdf"
+        major_login.supported_astc_bitset = 16383
+        major_login.analytics_detail = b"FwQVTgUPX1UaUllDDwcWCRBpWAUOUgsvA1snWlBaO1kFYg=="
+        major_login.loading_time = random.randint(9000, 18000)
+        major_login.release_channel = "android"
+        major_login.channel_type = 3
+        major_login.reg_avatar = 1
+        major_login.if_push = 1
+        major_login.is_vpn = 0
+        major_login.android_engine_init_flag = 110009
+
+        serialized = major_login.SerializeToString()
+        encrypted = encrypt_proto(serialized)
+
+        context = ssl._create_unverified_context()
+        conn = http.client.HTTPSConnection("loginbp.ggpolarbear.com", context=context, timeout=15)
+        headers = {
+            'X-Unity-Version': '2018.4.11f1',
+            'ReleaseVersion': 'OB54',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-GA': 'v1 1',
+            'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 7.1.2; ASUS_Z01QD Build/QKQ1.190825.002)',
+            'Host': 'loginbp.ggpolarbear.com',
+            'Connection': 'Keep-Alive',
+            'Accept-Encoding': 'gzip'
+        }
+        conn.request("POST", "/MajorLogin", body=encrypted, headers=headers)
+        response = conn.getresponse()
+        raw_data = response.read()
+
+        if response.getheader('Content-Encoding') == 'gzip':
+            with gzip.GzipFile(fileobj=BytesIO(raw_data)) as f:
+                raw_data = f.read()
+        conn.close()
+
+        if response.status in [200, 201]:
+            return raw_data.hex()
+        return None
+    except Exception:
+        return None
+
+
+def decrypt_major_response(hex_data):
+    try:
+        proto = MajoRLoGinrEs_pb2.MajorLoginRes()
+        proto.ParseFromString(bytes.fromhex(hex_data))
+        return proto
+    except Exception:
+        return None
+
+
+def generate_jwt(uid, password):
+    """Main function to generate JWT token from UID and Password"""
+    result = {
+        "success": False,
+        "uid": uid,
+        "jwt_token": None,
+        "account_uid": None,
+        "region": None,
+        "message": "",
+        "timestamp": datetime.now().isoformat()
+    }
+
+    # Validate inputs
+    if not uid or not password:
+        result["message"] = "UID and Password are required."
+        return result
+
+    if not uid.isdigit() or len(uid) < 8:
+        result["message"] = "Invalid UID format."
+        return result
+
+    # Step 1: Get access token
+    access_token, open_id = get_access_token(uid, password)
+    if not access_token or not open_id:
+        result["message"] = "Invalid UID or Password."
+        return result
+
+    # Step 2: MajorLogin
+    response_hex = major_login_protobuf(access_token, open_id)
+    if not response_hex:
+        result["message"] = "Account may be banned or invalid."
+        return result
+
+    # Step 3: Decrypt
+    login_data = decrypt_major_response(response_hex)
+    if not login_data:
+        result["message"] = "Failed to decrypt response."
+        return result
+
+    jwt_token = login_data.token
+    if not jwt_token:
+        result["message"] = "No JWT token received."
+        return result
+
+    result["success"] = True
+    result["jwt_token"] = jwt_token
+    result["account_uid"] = str(login_data.account_uid)
+    result["region"] = getattr(login_data, 'region', 'IND')
+    result["message"] = "JWT generated successfully!"
+
+    return result
+
+
+# ==================== PREMIUM HTML PAGE ====================
+HTML_PAGE = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hitek Data Gateway - LIVE</title>
+    <title>Obscura JWT GENERATOR</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        body { margin: 0; overflow: hidden; background-color: #050505; color: #00ffcc; font-family: 'Courier New', Courier, monospace; }
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; }
-        .overlay {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            text-align: center; background: rgba(10, 10, 10, 0.85); padding: 50px;
-            border: 1px solid #00ffcc; border-radius: 12px; box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
-            backdrop-filter: blur(5px);
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0f;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Rajdhani', sans-serif;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
         }
-        h1 { margin: 0 0 15px 0; font-size: 3.5em; text-transform: uppercase; letter-spacing: 6px; text-shadow: 0 0 15px #00ffcc; }
-        p { font-size: 1.2em; margin: 8px 0; color: #ccc; }
-        .highlight { color: #00ffcc; font-weight: bold; }
-        .status-box {
-            margin-top: 30px; font-weight: bold; padding: 15px;
-            border-radius: 8px; background: rgba(0, 255, 204, 0.1);
-            border: 1px solid rgba(0, 255, 204, 0.5);
-            font-size: 1.1em;
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            right: -50%;
+            bottom: -50%;
+            background: 
+                radial-gradient(ellipse at 20% 50%, rgba(255,0,100,0.08), transparent 50%),
+                radial-gradient(ellipse at 80% 50%, rgba(100,0,255,0.08), transparent 50%),
+                radial-gradient(ellipse at 50% 100%, rgba(0,200,255,0.05), transparent 50%);
+            animation: bgFloat 20s ease-in-out infinite alternate;
+            z-index: 0;
+            pointer-events: none;
         }
-        .blinking { animation: blinker 1.5s linear infinite; display: inline-block; }
-        @keyframes blinker { 50% { opacity: 0; } }
-        .credit { margin-top: 20px; font-size: 0.85em; color: #666; letter-spacing: 2px; }
+        @keyframes bgFloat {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            100% { transform: translate(2%, -2%) rotate(3deg); }
+        }
+        .container {
+            background: rgba(10, 10, 20, 0.92);
+            border-radius: 28px;
+            padding: 45px 40px;
+            max-width: 580px;
+            width: 100%;
+            border: 1px solid rgba(255,255,255,0.06);
+            box-shadow: 0 40px 100px rgba(0,0,0,0.8), 0 0 80px rgba(255,0,100,0.03);
+            position: relative;
+            z-index: 1;
+            backdrop-filter: blur(30px);
+        }
+        .container::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            bottom: -1px;
+            border-radius: 29px;
+            background: linear-gradient(135deg, rgba(255,0,100,0.15), rgba(100,0,255,0.15), rgba(0,200,255,0.1));
+            z-index: -1;
+            opacity: 0.5;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header .logo {
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+        .header .logo .icon {
+            font-size: 32px;
+            color: #ff0066;
+            margin-right: 8px;
+        }
+        .header h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 28px;
+            font-weight: 900;
+            background: linear-gradient(135deg, #ff0066, #cc00ff, #6600ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 3px;
+            display: inline-block;
+        }
+        .header .subtitle {
+            color: rgba(255,255,255,0.3);
+            font-size: 13px;
+            letter-spacing: 5px;
+            margin-top: 6px;
+            font-weight: 300;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            color: rgba(255,255,255,0.5);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .form-group .input-wrap {
+            position: relative;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.06);
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        .form-group .input-wrap:focus-within {
+            border-color: rgba(255,0,100,0.3);
+            box-shadow: 0 0 30px rgba(255,0,100,0.04);
+            background: rgba(255,255,255,0.05);
+        }
+        .form-group .input-wrap .icon-left {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255,255,255,0.15);
+            font-size: 14px;
+            pointer-events: none;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 15px 16px 15px 44px;
+            background: transparent;
+            border: none;
+            color: #e0e0e0;
+            font-size: 15px;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            outline: none;
+        }
+        .form-group input::placeholder {
+            color: rgba(255,255,255,0.15);
+            font-weight: 300;
+        }
+        .form-group input:-webkit-autofill {
+            -webkit-box-shadow: 0 0 0 1000px rgba(10,10,20,0.95) inset !important;
+            -webkit-text-fill-color: #e0e0e0 !important;
+        }
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            background: linear-gradient(135deg, #ff0066, #cc00ff);
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(255,0,100,0.25);
+        }
+        .btn:active { transform: scale(0.97); }
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+        .btn .btn-text { position: relative; z-index: 1; }
+        .result-box {
+            margin-top: 28px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: 20px;
+            display: none;
+            animation: fadeSlide 0.4s ease;
+        }
+        .result-box.show { display: block; }
+        @keyframes fadeSlide {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .result-box .result-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .result-box .result-header .status-icon { font-size: 20px; }
+        .result-box .result-header .status-text {
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .result-box .result-header .status-text.success { color: #00e676; }
+        .result-box .result-header .status-text.error { color: #ff1744; }
+        .result-box .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            font-size: 13px;
+            align-items: center;
+        }
+        .result-box .info-row:last-child { border-bottom: none; }
+        .result-box .info-row .label {
+            color: rgba(255,255,255,0.35);
+            font-weight: 300;
+            letter-spacing: 1px;
+            font-size: 12px;
+        }
+        .result-box .info-row .value {
+            color: #d0d0d0;
+            font-weight: 500;
+            text-align: right;
+            max-width: 60%;
+            word-break: break-all;
+            font-size: 13px;
+        }
+        .result-box .info-row .value.token-value {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #ff66aa;
+            max-width: 70%;
+            background: rgba(255,0,100,0.05);
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        .result-box .copy-section {
+            margin-top: 14px;
+            display: flex;
+            gap: 8px;
+        }
+        .result-box .copy-section .copy-btn {
+            flex: 1;
+            padding: 9px;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.02);
+            color: rgba(255,255,255,0.4);
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 1px;
+            text-align: center;
+        }
+        .result-box .copy-section .copy-btn:hover {
+            background: rgba(255,255,255,0.06);
+            color: #fff;
+            border-color: rgba(255,255,255,0.12);
+        }
+        .result-box .copy-section .copy-btn.copied {
+            border-color: #00e676;
+            color: #00e676;
+            background: rgba(0,230,118,0.05);
+        }
+        .footer {
+            text-align: center;
+            margin-top: 22px;
+            color: rgba(255,255,255,0.08);
+            font-size: 11px;
+            letter-spacing: 3px;
+            font-weight: 300;
+        }
+        .footer .brand {
+            background: linear-gradient(135deg, #ff0066, #cc00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+        }
+        .loader {
+            display: none;
+            width: 28px;
+            height: 28px;
+            border: 2px solid rgba(255,255,255,0.05);
+            border-top-color: #ff0066;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin: 0 auto 4px;
+        }
+        .loader.show { display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .api-badge {
+            text-align: center;
+            margin-top: 14px;
+            padding: 10px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.03);
+        }
+        .api-badge code {
+            color: rgba(255,255,255,0.2);
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.5px;
+        }
+        .api-badge code .highlight {
+            color: #ff66aa;
+        }
+        @media (max-width: 500px) {
+            .container { padding: 28px 18px; }
+            .header h1 { font-size: 22px; letter-spacing: 2px; }
+            .form-group input { font-size: 14px; padding: 13px 14px 13px 40px; }
+            .btn { font-size: 13px; padding: 14px; }
+            .result-box .info-row { flex-direction: column; gap: 2px; align-items: flex-start; }
+            .result-box .info-row .value { max-width: 100%; text-align: left; }
+            .result-box .copy-section { flex-direction: column; }
+            .result-box .info-row .value.token-value { max-width: 100%; }
+        }
     </style>
 </head>
 <body>
-    <div id="canvas-container"></div>
-    <div class="overlay">
-        <h1>SYSTEM ONLINE</h1>
-        <p>API Gateway is <span class="highlight">Active &amp; Secured</span></p>
-        <p>Parquet Cloud Engine: <span class="highlight">Connected</span></p>
-        <div class="status-box">
-            <span class="blinking" style="color: #00ffcc;">&#9679;</span> HTTP 200 OK - LISTENING FOR QUERIES
+
+<div class="container">
+    <div class="header">
+        <div class="logo">
+            <span class="icon"><i class="fas fa-crown"></i></span>
+            <h1>NIROB JWT</h1>
         </div>
-        <div class="credit">POWERED BY @ObscuraApis</div>
+        <div class="subtitle">PREMIUM TOKEN GENERATOR</div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script>
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    <form id="jwtForm" onsubmit="generateJWT(event)">
+        <div class="form-group">
+            <label><i class="fas fa-user"></i> UID</label>
+            <div class="input-wrap">
+                <span class="icon-left"><i class="fas fa-id-card"></i></span>
+                <input type="text" id="uid" placeholder="Enter Free Fire UID" required>
+            </div>
+        </div>
+        <div class="form-group">
+            <label><i class="fas fa-lock"></i> PASSWORD</label>
+            <div class="input-wrap">
+                <span class="icon-left"><i class="fas fa-key"></i></span>
+                <input type="password" id="password" placeholder="Enter Free Fire Password" required>
+            </div>
+        </div>
+        <button type="submit" class="btn" id="submitBtn">
+            <span class="btn-text"><i class="fas fa-bolt"></i> GENERATE JWT</span>
+        </button>
+    </form>
 
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.getElementById('canvas-container').appendChild(renderer.domElement);
+    <div class="loader" id="loader"></div>
 
-        const geometry = new THREE.BufferGeometry();
-        const vertices = [];
-        for (let i = 0; i < 8000; i++) {
-            vertices.push(THREE.MathUtils.randFloatSpread(3000));
-            vertices.push(THREE.MathUtils.randFloatSpread(3000));
-            vertices.push(THREE.MathUtils.randFloatSpread(3000));
+    <div class="result-box" id="resultBox">
+        <div class="result-header">
+            <span class="status-icon" id="statusIcon"><i class="fas fa-check-circle"></i></span>
+            <span class="status-text" id="statusText">Success</span>
+        </div>
+        <div class="info-row">
+            <span class="label"><i class="fas fa-user"></i> UID</span>
+            <span class="value" id="resultUid">-</span>
+        </div>
+        <div class="info-row">
+            <span class="label"><i class="fas fa-id-badge"></i> Account UID</span>
+            <span class="value" id="resultAccountUid">-</span>
+        </div>
+        <div class="info-row">
+            <span class="label"><i class="fas fa-globe"></i> Region</span>
+            <span class="value" id="resultRegion">-</span>
+        </div>
+        <div class="info-row">
+            <span class="label"><i class="fas fa-ticket-alt"></i> JWT Token</span>
+            <span class="value token-value" id="resultToken">-</span>
+        </div>
+        <div class="copy-section">
+            <button class="copy-btn" onclick="copyToken()"><i class="fas fa-copy"></i> COPY TOKEN</button>
+            <button class="copy-btn" onclick="copyAll()"><i class="fas fa-copy"></i> COPY ALL</button>
+        </div>
+    </div>
+
+    <div class="api-badge">
+        <code>API: <span class="highlight">/NIROB?uid={UID}&password={PASS}</span></code>
+    </div>
+
+    <div class="footer">
+        <span class="brand">NIROB</span> &bull; PREMIUM JWT API
+    </div>
+</div>
+
+<script>
+    async function generateJWT(event) {
+        event.preventDefault();
+        const uid = document.getElementById('uid').value.trim();
+        const password = document.getElementById('password').value.trim();
+        const submitBtn = document.getElementById('submitBtn');
+        const loader = document.getElementById('loader');
+        const resultBox = document.getElementById('resultBox');
+        
+        if (!uid || !password) {
+            showResult(false, 'Please fill in both UID and Password.', {});
+            return;
         }
-
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-        const material = new THREE.PointsMaterial({ color: 0x00ffcc, size: 2.5, transparent: true, opacity: 0.8 });
-        const points = new THREE.Points(geometry, material);
-        scene.add(points);
-
-        camera.position.z = 1200;
-
-        function animate() {
-            requestAnimationFrame(animate);
-            points.rotation.x += 0.0005;
-            points.rotation.y += 0.001;
-            renderer.render(scene, camera);
-        }
-        animate();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    </script>
-</body>
-</html>
-"""
-
-
-# ------------------------------------------------------------------
-# Exception handlers
-# ------------------------------------------------------------------
-@app.exception_handler(StarletteHTTPException)
-async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
-    if exc.status_code == 404:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "status": "rejected",
-                "message": "Invalid endpoint. STRICTLY use /FetchData?Number=XXXXXXXXXX",
-                "Developer": "@ObscuraApis"
+        
+        submitBtn.disabled = true;
+        submitBtn.querySelector('.btn-text').textContent = 'GENERATING...';
+        loader.classList.add('show');
+        resultBox.classList.remove('show');
+        
+        try {
+            const response = await fetch('/NIROB', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid, password })
+            });
+            const data = await response.json();
+            if (data.success) {
+                showResult(true, data.message, data);
+            } else {
+                showResult(false, data.message, data);
             }
-        )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail, "Developer": "@ObscuraApis"}
-    )
-
-
-# ------------------------------------------------------------------
-# Routes
-# ------------------------------------------------------------------
-@app.get("/", response_class=HTMLResponse)
-def root_landing_page():
-    return HTMLResponse(content=LANDING_PAGE_HTML, status_code=200)
-
-
-@app.get("/health")
-def health():
-    """Health check endpoint used by Render."""
-    return {
-        "status": "ok",
-        "hf_token_loaded": bool(HF_TOKEN),
-        "Developer": "@ObscuraApis"
+        } catch (error) {
+            showResult(false, 'Network error. Please try again.', {});
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.querySelector('.btn-text').textContent = 'GENERATE JWT';
+            loader.classList.remove('show');
+        }
     }
-
-
-@app.get("/FetchData")
-def fetch_data(Number: str = Query(None)):
-    if not Number or not Number.isdigit() or len(Number) < 10 or len(Number) > 15:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "status": "rejected",
-                "message": "Invalid parameter. STRICTLY use /FetchData?Number=XXXXXXXXXX",
-                "Developer": "@ObscuraApis"
-            }
-        )
-
-    last_digit = Number[-1]
-
-    # ---- FIXED: buckets URL (Xet storage), no /main/ segment ----
-    primary_url = (
-        f"https://huggingface.co/buckets/CutehackX/hitek-data-bucket/"
-        f"tree/final_master_shard_{last_digit}.parquet"
-    )
-    alt_url = (
-        f"https://huggingface.co/buckets/CutehackX/hitek-data-bucket/"
-        f"tree/final_master_shard_{last_digit}.parquet"
-    )
-
-    try:
-        query = f"""
-            SELECT *, 'Main' AS _record_type
-            FROM read_parquet('{primary_url}')
-            WHERE mobile = '{Number}'
-            UNION ALL
-            SELECT *, 'Alt' AS _record_type
-            FROM read_parquet('{alt_url}')
-            WHERE alt = '{Number}'
-        """
-
-        # DuckDB connection is not thread-safe for concurrent execution
-        with _db_lock:
-            raw_results = con.execute(query).df().to_dict(orient="records")
-
-        main_records = []
-        alt_records = []
-
-        for row in raw_results:
-            rec_type = row.pop('_record_type')
-            if rec_type == 'Main':
-                main_records.append(row)
-            else:
-                alt_records.append(row)
-
-        if not main_records and not alt_records:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "status": "not_found",
-                    "phone": Number,
-                    "Developer": "@ObscuraApis"
-                }
-            )
-
-        return {
-            "status": "success",
-            "Data": {
-                "Main_Records": main_records,
-                "Alt_Records": alt_records
-            },
-            "Developer": "@ObscuraApis"
+    
+    function showResult(success, message, data) {
+        const resultBox = document.getElementById('resultBox');
+        const statusIcon = document.getElementById('statusIcon');
+        const statusText = document.getElementById('statusText');
+        
+        statusIcon.innerHTML = success ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-times-circle"></i>';
+        statusText.textContent = message;
+        statusText.className = 'status-text ' + (success ? 'success' : 'error');
+        
+        document.getElementById('resultUid').textContent = data.uid || '-';
+        document.getElementById('resultAccountUid').textContent = data.account_uid || '-';
+        document.getElementById('resultRegion').textContent = data.region || '-';
+        document.getElementById('resultToken').textContent = data.jwt_token || '-';
+        
+        resultBox.classList.add('show');
+        resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    
+    function copyToken() {
+        const token = document.getElementById('resultToken').textContent;
+        if (token && token !== '-') {
+            navigator.clipboard.writeText(token).then(() => {
+                const btn = event.target.closest('.copy-btn');
+                btn.textContent = 'COPIED!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'COPY TOKEN';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
         }
+    }
+    
+    function copyAll() {
+        const uid = document.getElementById('resultUid').textContent;
+        const accountUid = document.getElementById('resultAccountUid').textContent;
+        const region = document.getElementById('resultRegion').textContent;
+        const token = document.getElementById('resultToken').textContent;
+        if (token && token !== '-') {
+            const text = `UID: ${uid}\\nAccount UID: ${accountUid}\\nRegion: ${region}\\nJWT Token: ${token}`;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target.closest('.copy-btn');
+                btn.textContent = 'COPIED!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'COPY ALL';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+    }
+</script>
 
-    except Exception as e:
-        err = str(e)
-        if "401" in err or "Unauthorized" in err:
-            return JSONResponse(
-                status_code=502,
-                content={
-                    "status": "error",
-                    "message": (
-                        "Hugging Face rejected the request (401). "
-                        "The bucket may be private — set HF_TOKEN on Render, "
-                        "or confirm the bucket is public."
-                    ),
-                    "Developer": "@ObscuraApis"
-                }
-            )
-        if "404" in err or "not found" in err.lower():
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "status": "error",
-                    "message": (
-                        "Shard file not found on Hugging Face. "
-                        "Verify the filename and bucket path are correct."
-                    ),
-                    "Developer": "@ObscuraApis"
-                }
-            )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Database processing error: {err}",
-                "Developer": "@ObscuraApis"
-            }
-        )
+</body>
+</html>'''
+
+
+# ==================== FLASK ROUTES ====================
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_PAGE)
+
+
+@app.route('/NIROB', methods=['GET', 'POST'])
+def nirob():
+    if request.method == 'GET':
+        uid = request.args.get('uid', '').strip()
+        password = request.args.get('password', '').strip()
+    else:
+        data = request.get_json(silent=True) or {}
+        uid = str(data.get('uid', '')).strip()
+        password = str(data.get('password', '')).strip()
+
+    if not uid or not password:
+        response = {'success': False, 'message': 'UID and Password are required.'}
+    else:
+        response = generate_jwt(uid, password)
+
+    resp = jsonify(response)
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+
+@app.route('/api', methods=['GET', 'POST'])
+def api():
+    if request.method == 'GET':
+        uid = request.args.get('uid', '').strip()
+        password = request.args.get('password', '').strip()
+    else:
+        data = request.get_json(silent=True) or {}
+        uid = str(data.get('uid', '')).strip()
+        password = str(data.get('password', '')).strip()
+
+    if not uid or not password:
+        response = {'success': False, 'message': 'UID and Password are required.'}
+    else:
+        response = generate_jwt(uid, password)
+
+    resp = jsonify(response)
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+
+# ==================== RUN ====================
+
+if __name__ == '__main__':
+    print("""
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║   ███╗   ██╗██╗██████╗  ██████╗ ██████╗                 ║
+║   ████╗  ██║██║██╔══██╗██╔═══██╗██╔══██╗                ║
+║   ██╔██╗ ██║██║██████╔╝██║   ██║██████╔╝                ║
+║   ██║╚██╗██║██║██╔══██╗██║   ██║██╔══██╗                ║
+║   ██║ ╚████║██║██║  ██║╚██████╔╝██████╔╝                ║
+║   ╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝                 ║
+║                                                          ║
+║   🔐 PREMIUM JWT GENERATOR SERVER (FLASK)               ║
+║   📡 PORT: 8080                                         ║
+║   🌐 URL: http://localhost:8080                         ║
+║                                                          ║
+║   📌 API USAGE:                                          ║
+║   GET  /api?uid=UID&password=PASS                       ║
+║   POST /api uid UID password PASS                       ║
+║   GET  /NIROB?uid=UID&password=PASS                     ║
+║   POST /NIROB uid UID password PASS                     ║
+║                                                          ║
+║   ⚡ OBSCURA JWT GENERATOR - PREMIUM EDITION             ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+    """)
+    print("\n✅ Server running at: http://localhost:8080\n")
+    print("📌 API: http://localhost:8080/api?uid=123456789&password=yourpass\n")
+    print("📌 API: http://localhost:8080/NIROB?uid=123456789&password=yourpass\n")
+    print("Press Ctrl+C to stop the server.\n")
+
+    app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
