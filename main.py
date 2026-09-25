@@ -1,22 +1,39 @@
+import os
+import threading
+import duckdb
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import duckdb
-import threading
-
-app = FastAPI(title="Hitek Data Gateway", version="1.0.0")
 
 # ------------------------------------------------------------------
-# DuckDB setup — extensions pre-installed in Dockerfile, so we only LOAD
+# App + DuckDB initialization
 # ------------------------------------------------------------------
+app = FastAPI(title="Hitek Data Gateway", version="1.1.0")
+
 _db_lock = threading.Lock()
 con = duckdb.connect(database=":memory:")
 con.execute("LOAD httpfs;")
-# Optional: tune for lower memory usage on free tier
 con.execute("SET threads=2;")
 con.execute("SET memory_limit='400MB';")
 
+# ---- Hugging Face authentication (required for private / gated datasets) ----
+HF_TOKEN = "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"
+if HF_TOKEN:
+    try:
+        con.execute(
+            f"CREATE OR REPLACE SECRET hf_token "
+            f"(TYPE HUGGINGFACE, TOKEN '{HF_TOKEN}');"
+        )
+        print("[INIT] Hugging Face secret loaded successfully.")
+    except Exception as e:
+        print(f"[INIT][ERROR] Failed to create HF secret: {e}")
+else:
+    print("[INIT][WARN] HF_TOKEN env var not set — private datasets will return 401.")
 
+
+# ------------------------------------------------------------------
+# Landing page HTML
+# ------------------------------------------------------------------
 LANDING_PAGE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -103,7 +120,7 @@ LANDING_PAGE_HTML = """
 
 
 # ------------------------------------------------------------------
-# Exception Handlers
+# Exception handlers
 # ------------------------------------------------------------------
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -132,8 +149,12 @@ def root_landing_page():
 
 @app.get("/health")
 def health():
-    """Simple health-check endpoint for Render."""
-    return {"status": "ok", "Developer": "@ObscuraApis"}
+    """Health check endpoint used by Render."""
+    return {
+        "status": "ok",
+        "hf_token_loaded": bool(HF_TOKEN),
+        "Developer": "@ObscuraApis"
+    }
 
 
 @app.get("/FetchData")
@@ -150,8 +171,14 @@ def fetch_data(Number: str = Query(None)):
 
     last_digit = Number[-1]
 
-    primary_url = f"https://huggingface.co/datasets/CutehackX/hitek-data-bucket/resolve/main/final_master_shard_{last_digit}.parquet"
-    alt_url = f"https://huggingface.co/datasets/CutehackX/hitek-data-bucket/resolve/main/alt_master_shard_{last_digit}.parquet"
+    primary_url = (
+        f"https://huggingface.co/datasets/CutehackX/hitek-data-bucket/"
+        f"resolve/main/final_master_shard_{last_digit}.parquet"
+    )
+    alt_url = (
+        f"https://huggingface.co/datasets/CutehackX/hitek-data-bucket/"
+        f"resolve/main/alt_master_shard_{last_digit}.parquet"
+    )
 
     try:
         query = f"""
@@ -164,7 +191,7 @@ def fetch_data(Number: str = Query(None)):
             WHERE alt = '{Number}'
         """
 
-        # Lock because DuckDB connection is not thread-safe for parallel writes
+        # DuckDB connection is not thread-safe for concurrent execution
         with _db_lock:
             raw_results = con.execute(query).df().to_dict(orient="records")
 
@@ -198,11 +225,25 @@ def fetch_data(Number: str = Query(None)):
         }
 
     except Exception as e:
+        err = str(e)
+        if "401" in err or "Unauthorized" in err:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "status": "error",
+                    "message": (
+                        "Hugging Face rejected the request (401). "
+                        "Verify that HF_TOKEN is set, the token is valid, "
+                        "and that you have accepted the dataset's terms."
+                    ),
+                    "Developer": "@ObscuraApis"
+                }
+            )
         return JSONResponse(
             status_code=500,
             content={
                 "status": "error",
-                "message": f"Database processing error: {str(e)}",
+                "message": f"Database processing error: {err}",
                 "Developer": "@ObscuraApis"
             }
         )
