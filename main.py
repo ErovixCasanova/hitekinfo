@@ -1,7 +1,7 @@
 # Developed NIROB | Premium JWT Generator API & Web
 # Fixed By NIROB
 # tg : MT_0G
-# Flask Version
+# Vercel-compatible Flask version
 
 import os
 import sys
@@ -11,13 +11,11 @@ import random
 import gzip
 import ssl
 import http.client
-import urllib.parse
 from io import BytesIO
 from datetime import datetime
 
 import requests
 import urllib3
-import jwt
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 from flask import Flask, request, jsonify, render_template_string
@@ -31,8 +29,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ==================== CONSTANTS ====================
 AES_KEY = b'Yg&tc%DEuh6%Zc^8'
 AES_IV = b'6oyZDr22E3ychjM%'
-PORT = 8080
+PORT = int(os.environ.get("PORT", 8080))
 
+# Vercel looks for a top-level variable named `app` (Flask instance)
 app = Flask(__name__)
 
 
@@ -185,7 +184,6 @@ def generate_jwt(uid, password):
         "timestamp": datetime.now().isoformat()
     }
 
-    # Validate inputs
     if not uid or not password:
         result["message"] = "UID and Password are required."
         return result
@@ -194,19 +192,16 @@ def generate_jwt(uid, password):
         result["message"] = "Invalid UID format."
         return result
 
-    # Step 1: Get access token
     access_token, open_id = get_access_token(uid, password)
     if not access_token or not open_id:
         result["message"] = "Invalid UID or Password."
         return result
 
-    # Step 2: MajorLogin
     response_hex = major_login_protobuf(access_token, open_id)
     if not response_hex:
         result["message"] = "Account may be banned or invalid."
         return result
 
-    # Step 3: Decrypt
     login_data = decrypt_major_response(response_hex)
     if not login_data:
         result["message"] = "Failed to decrypt response."
@@ -282,28 +277,15 @@ HTML_PAGE = '''<!DOCTYPE html>
         .container::before {
             content: '';
             position: absolute;
-            top: -1px;
-            left: -1px;
-            right: -1px;
-            bottom: -1px;
+            top: -1px; left: -1px; right: -1px; bottom: -1px;
             border-radius: 29px;
             background: linear-gradient(135deg, rgba(255,0,100,0.15), rgba(100,0,255,0.15), rgba(0,200,255,0.1));
             z-index: -1;
             opacity: 0.5;
         }
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .header .logo {
-            display: inline-block;
-            margin-bottom: 8px;
-        }
-        .header .logo .icon {
-            font-size: 32px;
-            color: #ff0066;
-            margin-right: 8px;
-        }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header .logo { display: inline-block; margin-bottom: 8px; }
+        .header .logo .icon { font-size: 32px; color: #ff0066; margin-right: 8px; }
         .header h1 {
             font-family: 'Orbitron', sans-serif;
             font-size: 28px;
@@ -321,9 +303,7 @@ HTML_PAGE = '''<!DOCTYPE html>
             margin-top: 6px;
             font-weight: 300;
         }
-        .form-group {
-            margin-bottom: 20px;
-        }
+        .form-group { margin-bottom: 20px; }
         .form-group label {
             display: block;
             color: rgba(255,255,255,0.5);
@@ -367,10 +347,7 @@ HTML_PAGE = '''<!DOCTYPE html>
             letter-spacing: 0.5px;
             outline: none;
         }
-        .form-group input::placeholder {
-            color: rgba(255,255,255,0.15);
-            font-weight: 300;
-        }
+        .form-group input::placeholder { color: rgba(255,255,255,0.15); font-weight: 300; }
         .form-group input:-webkit-autofill {
             -webkit-box-shadow: 0 0 0 1000px rgba(10,10,20,0.95) inset !important;
             -webkit-text-fill-color: #e0e0e0 !important;
@@ -392,17 +369,9 @@ HTML_PAGE = '''<!DOCTYPE html>
             position: relative;
             overflow: hidden;
         }
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 40px rgba(255,0,100,0.25);
-        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(255,0,100,0.25); }
         .btn:active { transform: scale(0.97); }
-        .btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            transform: none !important;
-            box-shadow: none !important;
-        }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
         .btn .btn-text { position: relative; z-index: 1; }
         .result-box {
             margin-top: 28px;
@@ -419,90 +388,57 @@ HTML_PAGE = '''<!DOCTYPE html>
             to { opacity: 1; transform: translateY(0); }
         }
         .result-box .result-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 14px;
-            padding-bottom: 12px;
+            display: flex; align-items: center; gap: 10px;
+            margin-bottom: 14px; padding-bottom: 12px;
             border-bottom: 1px solid rgba(255,255,255,0.04);
         }
         .result-box .result-header .status-icon { font-size: 20px; }
-        .result-box .result-header .status-text {
-            font-size: 15px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
+        .result-box .result-header .status-text { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
         .result-box .result-header .status-text.success { color: #00e676; }
         .result-box .result-header .status-text.error { color: #ff1744; }
         .result-box .info-row {
-            display: flex;
-            justify-content: space-between;
+            display: flex; justify-content: space-between;
             padding: 8px 0;
             border-bottom: 1px solid rgba(255,255,255,0.03);
-            font-size: 13px;
-            align-items: center;
+            font-size: 13px; align-items: center;
         }
         .result-box .info-row:last-child { border-bottom: none; }
-        .result-box .info-row .label {
-            color: rgba(255,255,255,0.35);
-            font-weight: 300;
-            letter-spacing: 1px;
-            font-size: 12px;
-        }
+        .result-box .info-row .label { color: rgba(255,255,255,0.35); font-weight: 300; letter-spacing: 1px; font-size: 12px; }
         .result-box .info-row .value {
-            color: #d0d0d0;
-            font-weight: 500;
-            text-align: right;
-            max-width: 60%;
-            word-break: break-all;
-            font-size: 13px;
+            color: #d0d0d0; font-weight: 500; text-align: right;
+            max-width: 60%; word-break: break-all; font-size: 13px;
         }
         .result-box .info-row .value.token-value {
             font-family: 'Courier New', monospace;
-            font-size: 11px;
-            color: #ff66aa;
+            font-size: 11px; color: #ff66aa;
             max-width: 70%;
             background: rgba(255,0,100,0.05);
-            padding: 4px 8px;
-            border-radius: 6px;
+            padding: 4px 8px; border-radius: 6px;
         }
-        .result-box .copy-section {
-            margin-top: 14px;
-            display: flex;
-            gap: 8px;
-        }
+        .result-box .copy-section { margin-top: 14px; display: flex; gap: 8px; }
         .result-box .copy-section .copy-btn {
-            flex: 1;
-            padding: 9px;
+            flex: 1; padding: 9px;
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 8px;
             background: rgba(255,255,255,0.02);
             color: rgba(255,255,255,0.4);
             font-family: 'Rajdhani', sans-serif;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            letter-spacing: 1px;
-            text-align: center;
+            font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all 0.3s ease;
+            letter-spacing: 1px; text-align: center;
         }
         .result-box .copy-section .copy-btn:hover {
-            background: rgba(255,255,255,0.06);
-            color: #fff;
+            background: rgba(255,255,255,0.06); color: #fff;
             border-color: rgba(255,255,255,0.12);
         }
         .result-box .copy-section .copy-btn.copied {
-            border-color: #00e676;
-            color: #00e676;
+            border-color: #00e676; color: #00e676;
             background: rgba(0,230,118,0.05);
         }
         .footer {
-            text-align: center;
-            margin-top: 22px;
-            color: rgba(255,255,255,0.08);
-            font-size: 11px;
-            letter-spacing: 3px;
-            font-weight: 300;
+            text-align: center; margin-top: 22px;
+            color: rgba(255,255,255,0.08); font-size: 11px;
+            letter-spacing: 3px; font-weight: 300;
         }
         .footer .brand {
             background: linear-gradient(135deg, #ff0066, #cc00ff);
@@ -511,9 +447,7 @@ HTML_PAGE = '''<!DOCTYPE html>
             font-weight: 700;
         }
         .loader {
-            display: none;
-            width: 28px;
-            height: 28px;
+            display: none; width: 28px; height: 28px;
             border: 2px solid rgba(255,255,255,0.05);
             border-top-color: #ff0066;
             border-radius: 50%;
@@ -523,22 +457,16 @@ HTML_PAGE = '''<!DOCTYPE html>
         .loader.show { display: block; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .api-badge {
-            text-align: center;
-            margin-top: 14px;
-            padding: 10px;
+            text-align: center; margin-top: 14px; padding: 10px;
             background: rgba(255,255,255,0.02);
             border-radius: 10px;
             border: 1px solid rgba(255,255,255,0.03);
         }
         .api-badge code {
-            color: rgba(255,255,255,0.2);
-            font-size: 11px;
-            font-family: 'Courier New', monospace;
-            letter-spacing: 0.5px;
+            color: rgba(255,255,255,0.2); font-size: 11px;
+            font-family: 'Courier New', monospace; letter-spacing: 0.5px;
         }
-        .api-badge code .highlight {
-            color: #ff66aa;
-        }
+        .api-badge code .highlight { color: #ff66aa; }
         @media (max-width: 500px) {
             .container { padding: 28px 18px; }
             .header h1 { font-size: 22px; letter-spacing: 2px; }
@@ -552,7 +480,6 @@ HTML_PAGE = '''<!DOCTYPE html>
     </style>
 </head>
 <body>
-
 <div class="container">
     <div class="header">
         <div class="logo">
@@ -646,11 +573,7 @@ HTML_PAGE = '''<!DOCTYPE html>
                 body: JSON.stringify({ uid, password })
             });
             const data = await response.json();
-            if (data.success) {
-                showResult(true, data.message, data);
-            } else {
-                showResult(false, data.message, data);
-            }
+            showResult(data.success, data.message, data);
         } catch (error) {
             showResult(false, 'Network error. Please try again.', {});
         } finally {
@@ -712,7 +635,6 @@ HTML_PAGE = '''<!DOCTYPE html>
         }
     }
 </script>
-
 </body>
 </html>'''
 
@@ -764,36 +686,6 @@ def api():
     return resp
 
 
-# ==================== RUN ====================
-
+# ==================== LOCAL RUN ====================
 if __name__ == '__main__':
-    print("""
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║   ███╗   ██╗██╗██████╗  ██████╗ ██████╗                 ║
-║   ████╗  ██║██║██╔══██╗██╔═══██╗██╔══██╗                ║
-║   ██╔██╗ ██║██║██████╔╝██║   ██║██████╔╝                ║
-║   ██║╚██╗██║██║██╔══██╗██║   ██║██╔══██╗                ║
-║   ██║ ╚████║██║██║  ██║╚██████╔╝██████╔╝                ║
-║   ╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝                 ║
-║                                                          ║
-║   🔐 PREMIUM JWT GENERATOR SERVER (FLASK)               ║
-║   📡 PORT: 8080                                         ║
-║   🌐 URL: http://localhost:8080                         ║
-║                                                          ║
-║   📌 API USAGE:                                          ║
-║   GET  /api?uid=UID&password=PASS                       ║
-║   POST /api uid UID password PASS                       ║
-║   GET  /NIROB?uid=UID&password=PASS                     ║
-║   POST /NIROB uid UID password PASS                     ║
-║                                                          ║
-║   ⚡ OBSCURA JWT GENERATOR - PREMIUM EDITION             ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
-    """)
-    print("\n✅ Server running at: http://localhost:8080\n")
-    print("📌 API: http://localhost:8080/api?uid=123456789&password=yourpass\n")
-    print("📌 API: http://localhost:8080/NIROB?uid=123456789&password=yourpass\n")
-    print("Press Ctrl+C to stop the server.\n")
-
     app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
